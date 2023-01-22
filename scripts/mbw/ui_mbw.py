@@ -8,7 +8,9 @@ try:
     from modules import hashes
     from modules.sd_models import CheckpointInfo
 except:
-    print("could not import hashes or CheckpointInfo from SDwebui")
+    print("Could not import hashes or CheckpointInfo from SDwebui.")
+    print("Make sure you're on an updated A1111/webui version")
+    
     pass
 
 from scripts.mbw.merge_block_weighted import merge
@@ -60,6 +62,14 @@ def on_ui_tabs():
                             chk_save_as_safetensors = gr.Checkbox(
                                 label="Save as safetensors", value=False
                             )
+                    with gr.Column(scale=3):
+                        with gr.Row():
+                            prune_ema_only = gr.Checkbox(
+                                label="Prune ema-only", value=False
+                            )
+                            prune_non_ema = gr.Checkbox(
+                                label="Prune non-ema", value=False
+                            )
                     with gr.Column(scale=4):
                         radio_position_ids = gr.Radio(
                             label="Skip/Reset CLIP position_ids",
@@ -67,10 +77,12 @@ def on_ui_tabs():
                             value="None",
                             type="index",
                         )
+
         with gr.Row():
             model_A = gr.Dropdown(label="Model A", choices=sd_models.checkpoint_tiles())
             model_B = gr.Dropdown(label="Model B", choices=sd_models.checkpoint_tiles())
             txt_model_O = gr.Text(label="Output Model Name")
+
         with gr.Row():
             with gr.Column():
                 sl_IN_00 = gr.Slider(
@@ -232,6 +244,8 @@ def on_ui_tabs():
         chk_allow_overwrite,
         chk_save_as_safetensors,
         chk_save_as_half,
+        prune_ema_only,
+        prune_non_ema,
         radio_position_ids,
     ):
 
@@ -290,21 +304,6 @@ def on_ui_tabs():
         else:
             _model_B_info = ""
 
-        def validate_output_filename(
-            output_filename, save_as_safetensors=False, save_as_half=False
-        ):
-            output_filename = re.sub(r'[\\|:|?|"|<|>|\|\*]', "-", output_filename)
-            filename_body, filename_ext = os.path.splitext(output_filename)
-            _ret = output_filename
-            _footer = "-half" if save_as_half else ""
-            if filename_ext in [".safetensors", ".ckpt"]:
-                _ret = f"{filename_body}{_footer}{filename_ext}"
-            elif save_as_safetensors:
-                _ret = f"{output_filename}{_footer}.safetensors"
-            else:
-                _ret = f"{output_filename}{_footer}.ckpt"
-            return _ret
-
         model_O = (
             f"bw-merge-{_model_A_name}-{_model_B_info}-{sl_base_alpha}.ckpt"
             if txt_model_O == ""
@@ -327,6 +326,7 @@ def on_ui_tabs():
                 )
                 print(_err_msg)
                 return gr.update(value=f"{_err_msg} [{_output}]")
+
         print(f"  model_0    : {model_A}")
         print(f"  model_1    : {model_B}")
         print(f"  base_alpha : {sl_base_alpha}")
@@ -342,6 +342,7 @@ def on_ui_tabs():
             base_alpha=sl_base_alpha,
             output_file=_output,
             verbose=chk_verbose_mbw,
+            prune=None,
             save_as_safetensors=chk_save_as_safetensors,
             save_as_half=chk_save_as_half,
             skip_position_ids=radio_position_ids,
@@ -356,12 +357,13 @@ def on_ui_tabs():
                 + f"base_alpha={sl_base_alpha}<br>"
                 + f"Weight_values={_weights}<br>"
             )
-            print("merged.")
+            print(f"Merged to {model_O}.")
         else:
             ret_html = ret_message
             print("merge failed.")
 
         # save log to history.tsv
+        print("Creating history item for history.tsv")
         sd_models.list_models()
         model_A_info = sd_models.get_closet_checkpoint_match(model_A)
         model_B_info = sd_models.get_closet_checkpoint_match(model_B)
@@ -387,17 +389,22 @@ def on_ui_tabs():
             model_name(model_A_info),
             model_A_info.hash,
             model_sha256(model_A_info),
+            #
             model_name(model_B_info),
             model_B_info.hash,
             model_sha256(model_B_info),
+            #
             model_name(model_O_info),
             model_O_info.hash,
             model_sha256(model_O_info),
+            #
             sl_base_alpha,
             _weights,
             "",
             weight_name,
         )
+
+        print("History saved to history.tsv")
 
         return gr.update(value=f"{ret_html}")
 
@@ -532,3 +539,19 @@ def on_ui_tabs():
             sl_OUT_11,
         ],
     )
+
+
+def validate_output_filename(
+    output_filename, save_as_safetensors=False, save_as_half=False
+):
+    output_filename = re.sub(r'[\\|:|?|"|<|>|\|\*]', "-", output_filename)
+    filename_body, filename_ext = os.path.splitext(output_filename)
+    ret = output_filename
+    suffix = "-half" if save_as_half else ""
+    if filename_ext in [".safetensors", ".ckpt"]:
+        ret = f"{filename_body}{suffix}{filename_ext}"
+    elif save_as_safetensors:
+        ret = f"{output_filename}{suffix}.safetensors"
+    else:
+        ret = f"{output_filename}{suffix}.ckpt"
+    return ret
